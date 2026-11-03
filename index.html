@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A diagnosis game with six vasculitis cases. Six clues each, with early clues that fit many diagnoses.">
+<title>Name That Vasculitis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column, like a case file. Case tabs and a six-segment clue meter on top, the guess box under them, then the clue sheets (newest first while playing, in order once the case is closed). */
+:root{
+  --bg:#f7f1f4;
+  --surface:#ffffff;
+  --wash:#efe8f6;
+  --ink:#231b36;
+  --muted:#62587a;
+  --line:#dccfdc;
+  --accent:#43318f;
+  --accent-ink:#ffffff;
+  --eosin:#c24c7c;
+  --eosin-soft:#f6d9e5;
+  --good:#26774a;
+  --bad:#b0304a;
+  --skip:#8f87a1;
+  --font-display:'Bricolage Grotesque',system-ui,sans-serif;
+  --font-body:'IBM Plex Sans',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151021;
+    --surface:#1e1731;
+    --wash:#2a2145;
+    --ink:#f0eaf7;
+    --muted:#aca2c0;
+    --line:#3a2f56;
+    --accent:#b5a8ff;
+    --accent-ink:#17102b;
+    --eosin:#f08cb4;
+    --eosin-soft:#3a2236;
+    --good:#62c58a;
+    --bad:#f27a8e;
+    --skip:#6d6485;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151021;
+  --surface:#1e1731;
+  --wash:#2a2145;
+  --ink:#f0eaf7;
+  --muted:#aca2c0;
+  --line:#3a2f56;
+  --accent:#b5a8ff;
+  --accent-ink:#17102b;
+  --eosin:#f08cb4;
+  --eosin-soft:#3a2236;
+  --good:#62c58a;
+  --bad:#f27a8e;
+  --skip:#6d6485;
+  color-scheme:dark;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:16px;
+  line-height:1.55;
+  padding-block:20px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app{max-width:640px;margin-inline:auto;display:flex;flex-direction:column;gap:20px}
+.panel{display:flex;flex-direction:column;gap:14px}
+
+/* Header */
+.top{display:flex;gap:14px;align-items:center}
+.mark{flex:none;width:48px;height:48px}
+.mark .adv{fill:var(--eosin-soft);stroke:var(--eosin);stroke-width:2}
+.mark .med{fill:var(--wash);stroke:var(--accent);stroke-width:2}
+.mark .iel{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:4 3}
+.mark .lum{fill:var(--bg)}
+.mark .cell{fill:var(--accent)}
+.mark .giant{fill:var(--eosin-soft);stroke:var(--accent);stroke-width:1.4}
+h1{
+  margin:0;
+  font-family:var(--font-display);
+  font-weight:800;
+  font-size:clamp(1.9rem,7vw,2.6rem);
+  line-height:1.02;
+  letter-spacing:-0.01em;
+  text-wrap:balance;
+}
+.lede{margin:6px 0 0;color:var(--muted);max-width:52ch;text-wrap:pretty}
+
+/* Case tabs */
+.rail{display:flex;flex-wrap:wrap;gap:5px}
+.tab{
+  font:inherit;color:var(--ink);
+  min-width:42px;height:52px;padding:4px 6px;
+  background:var(--surface);
+  border:1.5px solid var(--line);border-radius:8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.tab .num{font-family:var(--font-display);font-weight:800;font-size:1.15rem;line-height:1}
+.tab .sub{font-family:var(--font-mono);font-size:.68rem;line-height:1.2;margin-top:3px;min-height:1.2em;color:var(--muted)}
+.tab.score{padding-inline:10px}
+.tab.score .num{font-size:.95rem;font-family:var(--font-body);font-weight:600}
+.tab[aria-current="true"]{border-color:var(--accent);background:var(--wash)}
+.tab[data-state="solved"]{border-color:var(--good)}
+.tab[data-state="solved"] .sub{color:var(--good)}
+.tab[data-state="missed"]{border-color:var(--bad)}
+.tab[data-state="missed"] .sub{color:var(--bad)}
+.tab:disabled{opacity:.45;cursor:not-allowed}
+.tab:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Case header and clue meter */
+.case-head{
+  margin:0;
+  font-family:var(--font-mono);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);
+}
+.meter{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.seg{height:12px;border-radius:3px;background:var(--line)}
+.seg[data-s="right"]{background:var(--good)}
+.seg[data-s="wrong"]{background:var(--bad)}
+.seg[data-s="skip"]{background:var(--skip)}
+.seg[data-s="now"]{background:var(--wash);box-shadow:inset 0 0 0 2px var(--accent)}
+.caption{margin:0;font-family:var(--font-mono);font-size:.8rem;color:var(--muted)}
+
+/* Guess box */
+.guess{display:grid;gap:10px}
+.field{position:relative}
+#guess{
+  width:100%;font:inherit;font-size:1rem;
+  padding:12px 14px;
+  background:var(--surface);color:var(--ink);
+  border:1.5px solid var(--line);border-radius:8px;
+}
+#guess::placeholder{color:var(--muted)}
+#guess:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.options{
+  list-style:none;margin:6px 0 0;padding:0;
+  background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;overflow:hidden;
+}
+.options li{padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.options li:last-child{border-bottom:0}
+.options li:hover,.options li[aria-selected="true"]{background:var(--wash)}
+.msg{margin:0;min-height:1.4em;color:var(--bad);font-size:.9rem}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+.btn{
+  font:inherit;font-weight:600;
+  min-height:44px;padding:10px 18px;
+  border:1.5px solid var(--accent);border-radius:8px;
+  cursor:pointer;
+}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;color:var(--accent)}
+
+.wrong{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.wrong:empty{display:none}
+.wrong li{
+  font-size:.85rem;padding:3px 10px;
+  color:var(--bad);border:1px solid var(--bad);border-radius:6px;
+  text-decoration:line-through;
+}
+
+/* Clue sheets */
+.clues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.sheet{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.sheet.new{background:var(--wash);border-color:var(--accent);animation:rise .25s ease-out}
+.sheet.unseen{border-style:dashed}
+.sheet-head{
+  display:flex;justify-content:space-between;gap:12px;margin-bottom:6px;
+  font-family:var(--font-mono);font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);
+}
+.sheet-head .n{color:var(--accent);font-weight:500}
+.sheet p{margin:0;max-width:62ch}
+.sheet p.open{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-family:var(--font-mono);font-size:.75rem;line-height:1.5;color:var(--muted)}
+.sheet p.open b{color:var(--accent);font-weight:500}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sheet.new{animation:none}}
+
+/* Debrief */
+.debrief{
+  display:flex;flex-direction:column;gap:12px;
+  background:var(--surface);
+  border:1.5px solid var(--line);border-radius:10px;
+  padding:18px 18px 20px;
+}
+.debrief.ok{border-color:var(--good)}
+.debrief.miss{border-color:var(--bad)}
+.verdict{margin:0;font-family:var(--font-mono);font-size:.78rem;letter-spacing:.09em;text-transform:uppercase}
+.debrief.ok .verdict{color:var(--good)}
+.debrief.miss .verdict{color:var(--bad)}
+.debrief h2{margin:0;font-family:var(--font-display);font-weight:800;font-size:1.6rem;line-height:1.1;text-wrap:balance}
+.debrief h2:focus{outline:none}
+.cat{margin:0;color:var(--muted);font-size:.9rem}
+.pearl{margin:0;padding:12px 14px;background:var(--wash);border-radius:8px}
+.whynot-title{margin:4px 0 0;font-family:var(--font-mono);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.whynot{margin:0}
+.whynot dt{font-weight:600}
+.whynot dd{margin:2px 0 12px}
+.whynot dd:last-child{margin-bottom:0}
+
+/* Results */
+.score-big{margin:0;font-family:var(--font-display);font-weight:800;font-size:3.4rem;line-height:1}
+.score-big span{font-size:1.2rem;font-weight:600;color:var(--muted)}
+.panel h2.res-title{margin:0;font-family:var(--font-mono);font-weight:500;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.rows{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.row{
+  display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;
+  padding:10px 12px;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;
+}
+.rname{min-width:0}
+.rpts{font-family:var(--font-mono);font-size:.8rem;color:var(--muted);min-width:3.4em;text-align:right}
+.squares{display:flex;gap:3px}
+.sq{width:14px;height:14px;border-radius:3px;background:var(--line)}
+.sq[data-s="right"]{background:var(--good)}
+.sq[data-s="wrong"]{background:var(--bad)}
+.sq[data-s="skip"]{background:var(--skip)}
+.share{
+  margin:0;padding:12px 14px;
+  font-family:var(--font-mono);font-size:.9rem;white-space:pre-wrap;
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  user-select:all;
+}
+.note{margin:0;color:var(--muted);font-size:.9rem}
+
+/* Standalone-page reset */
+html{color-scheme:light}
+@media (prefers-color-scheme: dark){html:not([data-theme="light"]){color-scheme:dark}}
+:root[data-theme="dark"]{color-scheme:dark}
+[hidden]{display:none!important}
+img{max-width:100%}
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <svg class="mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+      <circle class="adv" cx="24" cy="24" r="22"/>
+      <circle class="med" cx="24" cy="24" r="15"/>
+      <circle class="iel" cx="24" cy="24" r="8.5"/>
+      <circle class="lum" cx="24" cy="24" r="6"/>
+      <circle class="cell" cx="34" cy="29.7" r="1.5"/>
+      <circle class="cell" cx="22" cy="35.3" r="1.5"/>
+      <circle class="cell" cx="12.7" cy="26" r="1.5"/>
+      <circle class="cell" cx="27.9" cy="13.2" r="1.5"/>
+      <circle class="cell" cx="34.8" cy="20.1" r="1.5"/>
+      <circle class="giant" cx="16.4" cy="15.4" r="3"/>
+      <circle class="cell" cx="15.4" cy="14.6" r="0.8"/>
+      <circle class="cell" cx="17.4" cy="14.6" r="0.8"/>
+      <circle class="cell" cx="16.4" cy="16.7" r="0.8"/>
+    </svg>
+    <div>
+      <h1>Name That Vasculitis</h1>
+      <p class="lede">Six cases, six clues each. The early clues fit many diagnoses, so expect to narrow the field as you go. A wrong guess or a skip reveals the next clue. The fewer clues you need, the more points you score.</p>
+    </div>
+  </header>
+
+  <nav class="rail" id="tabs" aria-label="Cases"></nav>
+
+  <section class="panel" id="casePanel">
+    <p class="case-head" id="caseHead"></p>
+    <div class="meter" id="meter" role="img" aria-label=""></div>
+    <p class="caption" id="caption" aria-live="polite"></p>
+
+    <form class="guess" id="guessForm" autocomplete="off" novalidate>
+      <label for="guess" class="sr">Your diagnosis</label>
+      <div class="field">
+        <input id="guess" type="text" role="combobox" aria-expanded="false" aria-controls="options" aria-autocomplete="list" placeholder="Type a diagnosis" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <ul class="options" id="options" role="listbox" aria-label="Matching diagnoses" hidden></ul>
+      </div>
+      <p class="msg" id="msg" role="status"></p>
+      <div class="actions">
+        <button class="btn primary" type="submit">Submit guess</button>
+        <button class="btn ghost" type="button" id="skip">Skip to next clue</button>
+      </div>
+    </form>
+
+    <ul class="wrong" id="wrong" aria-label="Wrong guesses"></ul>
+    <div id="debrief"></div>
+    <p class="note" id="studyNote" hidden>Under each clue: the diagnoses from the answer list that are still possible at that point.</p>
+    <ol class="clues" id="clues"></ol>
+  </section>
+
+  <section class="panel" id="resultsPanel" hidden>
+    <h2 class="res-title">Your score</h2>
+    <p class="score-big" id="scoreBig"></p>
+    <ul class="rows" id="rows"></ul>
+    <p class="note">Tap a case number above to review its clues.</p>
+    <pre class="share" id="share"></pre>
+    <div class="actions">
+      <button class="btn primary" type="button" id="copy">Copy result</button>
+      <button class="btn ghost" type="button" id="restart">Start over</button>
+    </div>
+    <p class="note" id="copyNote" role="status"></p>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX = 6;
+  var KEY = 'name-that-vasculitis-v2';
+
+  var DX = [
+    { id: 'gca', short: 'GCA', name: 'Giant cell arteritis', aliases: ['GCA', 'temporal arteritis', 'cranial arteritis', 'Horton disease'] },
+    { id: 'tak', short: 'Takayasu', name: 'Takayasu arteritis', aliases: ['pulseless disease', 'aortic arch syndrome'] },
+    { id: 'pan', short: 'PAN', name: 'Polyarteritis nodosa', aliases: ['PAN'] },
+    { id: 'kd', short: 'Kawasaki', name: 'Kawasaki disease', aliases: ['Kawasaki', 'mucocutaneous lymph node syndrome'] },
+    { id: 'gpa', short: 'GPA', name: 'Granulomatosis with polyangiitis', aliases: ['GPA', 'Wegener', 'Wegener granulomatosis'] },
+    { id: 'mpa', short: 'MPA', name: 'Microscopic polyangiitis', aliases: ['MPA', 'microscopic polyarteritis'] },
+    { id: 'egpa', short: 'EGPA', name: 'Eosinophilic granulomatosis with polyangiitis', aliases: ['EGPA', 'Churg-Strauss', 'Churg Strauss syndrome'] },
+    { id: 'iga', short: 'IgA vasculitis', name: 'IgA vasculitis', aliases: ['Henoch-Schönlein purpura', 'HSP', 'IgAV'] },
+    { id: 'cryo', short: 'Cryoglobulinemic', name: 'Cryoglobulinemic vasculitis', aliases: ['cryoglobulinemia', 'cryoglobulinaemic vasculitis'] },
+    { id: 'gbm', short: 'Anti-GBM', name: 'Anti-GBM disease', aliases: ['Goodpasture', 'Goodpasture syndrome', 'anti glomerular basement membrane disease'] },
+    { id: 'tao', short: 'Buerger', name: 'Buerger disease', aliases: ['thromboangiitis obliterans', 'TAO'] },
+    { id: 'beh', short: 'Behçet', name: 'Behçet disease', aliases: ['Behcet', 'Behçet syndrome'] },
+    { id: 'hsv', short: 'Hypersensitivity', name: 'Hypersensitivity vasculitis', aliases: ['leukocytoclastic vasculitis', 'cutaneous small vessel vasculitis', 'drug-induced vasculitis'] }
+  ];
+
+  /* Each clue lists "fits": every diagnosis in the answer list that can plausibly present with everything in that clue.
+     The page intersects them clue by clue to show how the field narrows. Each case opens with a different
+     organ-system anchor that still fits several diagnoses. */
+  var CASES = [
+    {
+      answer: 'iga',
+      category: 'Small-vessel vasculitis, immune complex',
+      clues: [
+        { tag: 'Presentation', text: 'A 6-year-old boy has had two days of fever (38.6 °C) and swelling of both feet.',
+          fits: ['kd', 'iga', 'hsv', 'pan'] },
+        { tag: 'History', text: 'He then developed crampy abdominal pain and painful, swollen knees and ankles.',
+          fits: ['iga', 'kd', 'pan', 'hsv'] },
+        { tag: 'Labs', text: 'WBC 13,500/µL. Platelets 480,000/µL. CRP 4 mg/dL. Coagulation studies are normal. Urinalysis shows microscopic hematuria with 1+ protein. Cultures are negative.',
+          fits: ['iga', 'pan', 'hsv'] },
+        { tag: 'Exam', text: 'Non-blanching, palpable red-purple spots cover his buttocks and the backs of both legs. His eyes, lips, tongue and neck nodes are normal.',
+          fits: ['iga', 'hsv', 'pan'] },
+        { tag: 'Pathology', text: 'Skin biopsy: neutrophils and nuclear debris around small dermal venules, with fibrinoid necrosis of the vessel wall (leukocytoclastic vasculitis).',
+          fits: ['iga', 'hsv'] },
+        { tag: 'Immunofluorescence', text: 'Direct immunofluorescence of the biopsy shows IgA-dominant deposits in the vessel walls. Onset followed an upper respiratory infection, and most children recover without treatment.',
+          fits: ['iga'] }
+      ],
+      pearl: 'Direct immunofluorescence is what separates it from other leukocytoclastic vasculitis. The kidney lesion, mesangial IgA deposition, is indistinguishable from IgA nephropathy.',
+      whyNot: [
+        { id: 'kd', text: 'Shares fever, foot swelling, rash, abdominal pain and arthritis. But the Kawasaki rash is polymorphous and not palpable, the eyes, lips and neck nodes are involved, and the coronary arteries are at risk. Here the rash is palpable purpura and the mucosae are normal.' },
+        { id: 'hsv', text: 'The skin biopsy looks the same, with leukocytoclastic vasculitis of venules. But hypersensitivity vasculitis is usually triggered by a drug or infection and has no IgA-dominant deposits. Gut, joint and kidney involvement favor IgA vasculitis.' }
+      ]
+    },
+    {
+      answer: 'gca',
+      category: 'Large-vessel vasculitis',
+      clues: [
+        { tag: 'Presentation', text: 'A woman has had two months of low-grade fever, night sweats and aching in both upper arms.',
+          fits: ['gca', 'tak', 'pan', 'gpa', 'mpa', 'egpa', 'cryo'] },
+        { tag: 'Labs', text: 'ESR 94 mm/h. CRP 12 mg/dL. Hemoglobin 10.1 g/dL, normocytic. Platelets 540,000/µL. Alkaline phosphatase is mildly raised. Creatinine is 0.8 mg/dL and the urinalysis is normal.',
+          fits: ['gca', 'tak', 'pan', 'gpa', 'egpa', 'cryo'] },
+        { tag: 'History', text: 'Over the last week she has had a throbbing headache on the right, and this morning her right eye went dark for several minutes.',
+          fits: ['gca', 'tak', 'gpa', 'beh'] },
+        { tag: 'Exam', text: 'Blood pressure is 96/60 mmHg in the left arm and 138/80 mmHg in the right. The left radial pulse is weak and there is a bruit over the left subclavian artery. Her arms tire within minutes of combing her hair or hanging laundry.',
+          fits: ['gca', 'tak'] },
+        { tag: 'Age', text: 'She is 71 years old. Her temporal arteries feel normal and are not tender.',
+          fits: ['gca', 'pan', 'gpa', 'mpa', 'egpa', 'cryo', 'hsv'] },
+        { tag: 'Imaging and pathology', text: 'CT angiography shows smooth, long-segment tapering stenoses of both subclavian and axillary arteries, with circumferential wall thickening of the thoracic aorta. A temporal artery biopsy shows transmural granulomatous inflammation with giant cells at a fragmented internal elastic lamina.',
+          fits: ['gca', 'tak'] }
+      ],
+      pearl: 'Large-vessel GCA can look like Takayasu arteritis in the arms, with subclavian and axillary stenoses, pulse deficits and blood pressure differences. Age decides. The temporal artery biopsy can be negative in this pattern, so imaging carries more weight.',
+      whyNot: [
+        { id: 'tak', text: 'Same large-vessel pattern in the arms and the same granulomatous histology. But Takayasu begins before age 50, so a woman of 71 does not fit, and the temporal artery is not a usual target.' },
+        { id: 'gpa', text: 'Can cause fever, weight loss, headache and visual loss. But GPA does not cause long-segment subclavian stenoses with a pulse deficit, and her normal urinalysis and creatinine give no renal clue.' }
+      ]
+    },
+    {
+      answer: 'pan',
+      category: 'Medium-vessel vasculitis',
+      clues: [
+        { tag: 'Presentation', text: 'A 52-year-old man has had three months of abdominal pain after meals and a 9-kg weight loss.',
+          fits: ['pan', 'mpa', 'egpa', 'cryo', 'gpa'] },
+        { tag: 'History', text: 'He also has fever and aching muscles. Burning pain and weakness began in his right foot, and two weeks later his left wrist became weak.',
+          fits: ['pan', 'mpa', 'egpa', 'cryo', 'gpa'] },
+        { tag: 'Exam', text: 'Painful nodules and net-like purple discoloration (livedo reticularis) on both shins.',
+          fits: ['pan', 'cryo', 'mpa', 'egpa', 'gpa'] },
+        { tag: 'Labs', text: 'ESR 88 mm/h. Blood pressure is 176/104 mmHg and was normal a year ago. Creatinine 1.7 mg/dL. Urinalysis shows trace protein with no red cells or casts. Eosinophils 3%. Chest X-ray is normal.',
+          fits: ['pan', 'gpa', 'cryo'] },
+        { tag: 'Serology', text: 'ANCA and ANA are negative. Hepatitis B surface antigen is positive.',
+          fits: ['pan', 'cryo'] },
+        { tag: 'Imaging and pathology', text: 'Mesenteric angiography shows multiple small aneurysms and segmental stenoses of medium-sized arteries. A nodule biopsy shows segmental transmural fibrinoid necrosis of a muscular artery, with lesions of different ages side by side. Capillaries and venules are spared.',
+          fits: ['pan'] }
+      ],
+      pearl: 'PAN is confined to medium arteries. With no capillaries or venules involved, there is no glomerulonephritis and no pulmonary hemorrhage, which is why the urine is bland and the chest film is clear.',
+      whyNot: [
+        { id: 'mpa', text: 'Same constitutional illness, neuropathy and skin findings. But MPA involves small vessels, so the kidney shows hematuria with red cell casts and the lungs can bleed, usually with MPO-ANCA. Here the urine is bland, the chest film is normal and ANCA is negative.' },
+        { id: 'cryo', text: 'Hepatitis viruses can also drive cryoglobulinemic vasculitis, with livedo, neuropathy and purpura. But it is a small-vessel immune complex disease, usually with glomerulonephritis. Here the angiogram and biopsy show medium-artery disease with a bland urine.' }
+      ]
+    },
+    {
+      answer: 'egpa',
+      category: 'Small-vessel vasculitis, ANCA-associated',
+      clues: [
+        { tag: 'Presentation', text: 'A 41-year-old woman has had two months of cough and shortness of breath, with fatigue and low-grade fever.',
+          fits: ['egpa', 'gpa', 'mpa', 'gbm', 'cryo'] },
+        { tag: 'Course', text: 'She then developed numbness in her left hand and a drop of her right foot over two weeks.',
+          fits: ['pan', 'mpa', 'egpa', 'cryo', 'gpa'] },
+        { tag: 'Exam', text: 'Palpable purpura on both shins, with a few small skin ulcers.',
+          fits: ['mpa', 'egpa', 'cryo', 'gpa', 'hsv', 'pan', 'iga'] },
+        { tag: 'Imaging and history', text: 'Chest CT shows patchy peripheral opacities that were not there a month ago, with no nodules or cavities. She has had nasal polyps and chronic sinus congestion for years, but no nasal crusting or bleeding.',
+          fits: ['egpa', 'gpa'] },
+        { tag: 'Serology', text: 'p-ANCA with anti-MPO antibodies is positive. Anti-PR3 is negative. Creatinine and urinalysis are normal.',
+          fits: ['egpa', 'mpa', 'gpa'] },
+        { tag: 'Labs and pathology', text: 'WBC 22,000/µL with 36% eosinophils. Her cough began as adult-onset asthma three years ago and worsened recently. A skin biopsy shows small-vessel necrotizing vasculitis with abundant eosinophils, and a second biopsy shows extravascular granulomas around necrotic collagen and eosinophils.',
+          fits: ['egpa'] }
+      ],
+      pearl: 'Think in phases: allergic (asthma, rhinitis, polyps), then eosinophilic tissue infiltration, then vasculitis. Asthma can precede the vasculitis by years, and ANCA is positive in only a minority of patients.',
+      whyNot: [
+        { id: 'gpa', text: 'Shares sinus disease, lung infiltrates, neuropathy and purpura, and a minority of GPA is MPO-positive. But GPA brings destructive sinus disease with crusting, cavitating nodules and necrotizing granulomas, without asthma or marked eosinophilia.' },
+        { id: 'mpa', text: 'Shares MPO-ANCA, neuropathy and purpura. But MPA has no asthma, no granulomas and no eosinophilia, and it nearly always injures the kidney with pauci-immune glomerulonephritis. Her urine is normal.' }
+      ]
+    },
+    {
+      answer: 'gpa',
+      category: 'Small-vessel vasculitis, ANCA-associated',
+      clues: [
+        { tag: 'Presentation', text: 'A 47-year-old man has had two months of joint pains, fatigue and a persistently red, painful left eye.',
+          fits: ['gpa', 'pan', 'mpa', 'cryo', 'beh'] },
+        { tag: 'History', text: 'In the last two weeks he has coughed up blood-streaked sputum and passed tea-colored urine. Blood pressure is 148/90 mmHg.',
+          fits: ['gpa', 'mpa', 'gbm', 'cryo'] },
+        { tag: 'Labs', text: 'Creatinine 2.9 mg/dL, up from 1.0. Hemoglobin 9.3 g/dL. ESR 82 mm/h. Urinalysis shows dysmorphic red cells and red cell casts.',
+          fits: ['gpa', 'mpa', 'gbm', 'egpa', 'cryo'] },
+        { tag: 'Serology', text: 'C3 and C4 are normal. ANCA shows a cytoplasmic pattern with anti-PR3 antibodies. Anti-MPO and anti-GBM antibodies are negative.',
+          fits: ['gpa', 'mpa'] },
+        { tag: 'Imaging and exam', text: 'Chest CT shows several bilateral nodules, the largest 3 cm with central cavitation. He has had bloody nasal crusting and sinus pain for eight weeks that did not improve with two antibiotic courses. Exam shows scleritis in the left eye and erosion of the nasal septum.',
+          fits: ['gpa'] },
+        { tag: 'Pathology', text: 'Nasal biopsy: necrotizing granulomatous inflammation with geographic necrosis, palisading histiocytes, giant cells and small-vessel vasculitis. Kidney biopsy: pauci-immune crescentic glomerulonephritis.',
+          fits: ['gpa'] }
+      ],
+      pearl: 'Neither ANCA antibody settles the diagnosis alone: a minority of GPA is MPO-positive and a minority of MPA is PR3-positive. Necrotizing granulomas and destructive upper airway disease are what mark GPA.',
+      whyNot: [
+        { id: 'mpa', text: 'Same pulmonary-renal syndrome with pauci-immune glomerulonephritis, and a minority of MPA is PR3-positive. But MPA has no granulomas, no destructive nasal disease and no cavitating nodules.' },
+        { id: 'gbm', text: 'Another pulmonary-renal syndrome, defined by anti-GBM antibodies and linear IgG along the basement membrane. Anti-GBM is negative here, and it does not destroy the nasal septum or form cavitating nodules.' }
+      ]
+    },
+    {
+      answer: 'mpa',
+      category: 'Small-vessel vasculitis, ANCA-associated',
+      clues: [
+        { tag: 'Presentation', text: 'A 66-year-old man has had six weeks of fatigue, joint pains and a 6-kg weight loss. Routine labs show a creatinine of 2.6 mg/dL, up from 0.9 six months ago.',
+          fits: ['mpa', 'gpa', 'gbm', 'cryo', 'egpa', 'pan'] },
+        { tag: 'Exam', text: 'A purple, slightly raised rash covers both shins. For two weeks he has had numbness and weakness in his right foot.',
+          fits: ['mpa', 'egpa', 'cryo', 'pan', 'gpa'] },
+        { tag: 'Course', text: 'This week he has coughed up blood and passed tea-colored urine. Blood pressure is 152/94 mmHg.',
+          fits: ['gpa', 'mpa', 'gbm', 'cryo', 'egpa'] },
+        { tag: 'Labs', text: 'Hemoglobin 8.7 g/dL. ESR 90 mm/h. Urinalysis shows dysmorphic red cells, red cell casts and 2+ protein. C3 and C4 are normal. Eosinophils 2%. Cryoglobulins are negative.',
+          fits: ['gpa', 'mpa', 'gbm'] },
+        { tag: 'Imaging and exam', text: 'Chest CT shows bilateral ground-glass opacities from alveolar hemorrhage, with no nodules and no cavities. Sinus CT is normal. He has no nasal crusting, hearing loss or asthma.',
+          fits: ['mpa', 'gbm', 'gpa'] },
+        { tag: 'Serology and pathology', text: 'p-ANCA with anti-MPO antibodies is positive. Anti-PR3 and anti-GBM antibodies are negative. Kidney biopsy: segmental necrotizing glomerulonephritis with crescents and little or no immunoglobulin or complement on immunofluorescence. Lung biopsy: neutrophilic capillaritis. No granulomas.',
+          fits: ['mpa'] }
+      ],
+      pearl: 'Pulmonary-renal syndrome has a short differential: anti-GBM disease, GPA, MPA, lupus and cryoglobulinemia. The immunofluorescence pattern splits them: linear (anti-GBM), granular (immune complex), pauci-immune (ANCA).',
+      whyNot: [
+        { id: 'gpa', text: 'Same pulmonary-renal picture with pauci-immune glomerulonephritis, and a minority of MPA is PR3-positive. But GPA brings necrotizing granulomas, destructive nasal disease and cavitating nodules. This man has none of those, and his biopsies show no granulomas.' },
+        { id: 'gbm', text: 'Another pulmonary-renal syndrome with alveolar hemorrhage and crescentic glomerulonephritis, but defined by anti-GBM antibodies and linear IgG along the basement membrane. It does not cause purpura or neuropathy, and anti-GBM is negative here.' }
+      ]
+    }
+  ];
+
+  var norm = function (s) {
+    return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  };
+  var dxById = {};
+  DX.forEach(function (d) {
+    d.keys = [d.name].concat(d.aliases).map(norm);
+    dxById[d.id] = d;
+  });
+  var $ = function (sel) { return document.querySelector(sel); };
+
+  function freshState() {
+    return {
+      current: 0,
+      view: 'case',
+      cases: CASES.map(function () { return { history: [], guesses: [], done: false, solved: false }; })
+    };
+  }
+  var state = freshState();
+  var pendingFocus = false;
+
+  function validState(s) {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.cases) || s.cases.length !== CASES.length) return false;
+    if (!Number.isInteger(s.current) || s.current < 0 || s.current >= CASES.length) return false;
+    return s.cases.every(function (c) {
+      return c && Array.isArray(c.history) && c.history.length <= MAX &&
+        c.history.every(function (h) { return h === 'right' || h === 'wrong' || h === 'skip'; }) &&
+        Array.isArray(c.guesses) && c.guesses.every(function (g) { return !!dxById[g]; }) &&
+        typeof c.done === 'boolean' && typeof c.solved === 'boolean';
+    });
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY));
+      if (validState(s)) return s;
+    } catch (e) { /* storage unavailable or corrupt */ }
+    return null;
+  }
+
+  function score(c) { return c.solved ? MAX + 1 - c.history.length : 0; }
+  function totalScore() { return state.cases.reduce(function (t, c) { return t + score(c); }, 0); }
+  function allDone() { return state.cases.every(function (c) { return c.done; }); }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+  function act(kind, dxId) {
+    var c = state.cases[state.current];
+    if (c.done) return;
+    var spec = CASES[state.current];
+    if (kind === 'guess') {
+      if (dxId === spec.answer) {
+        c.history.push('right'); c.done = true; c.solved = true;
+      } else {
+        c.history.push('wrong'); c.guesses.push(dxId);
+        if (c.history.length >= MAX) c.done = true;
+      }
+    } else {
+      c.history.push('skip');
+      if (c.history.length >= MAX) c.done = true;
+    }
+    if (c.done) pendingFocus = true;
+    save();
+    render();
+  }
+
+  function nextTarget() {
+    var total = CASES.length;
+    for (var d = 1; d <= total; d++) {
+      var j = (state.current + d) % total;
+      if (!state.cases[j].done) return j;
+    }
+    return 'results';
+  }
+
+  /* Tabs */
+  function renderTabs() {
+    var rail = $('#tabs');
+    rail.innerHTML = '';
+    CASES.forEach(function (spec, i) {
+      var c = state.cases[i];
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tab';
+      b.dataset.state = c.done ? (c.solved ? 'solved' : 'missed') : 'open';
+      if (state.view === 'case' && state.current === i) b.setAttribute('aria-current', 'true');
+      var sub = c.done ? (c.solved ? '+' + score(c) : '0') : (c.history.length ? '…' : '');
+      b.innerHTML = '<span class="num">' + (i + 1) + '</span><span class="sub">' + sub + '</span>';
+      var status = c.done ? (c.solved ? 'solved, ' + plural(score(c), 'point') : 'not solved') : (c.history.length ? 'in progress' : 'not started');
+      b.setAttribute('aria-label', 'Case ' + (i + 1) + ', ' + status);
+      b.addEventListener('click', function () {
+        state.current = i; state.view = 'case'; save(); render();
+      });
+      rail.appendChild(b);
+    });
+    var sb = document.createElement('button');
+    sb.type = 'button';
+    sb.className = 'tab score';
+    sb.disabled = !allDone();
+    if (state.view === 'results' && allDone()) sb.setAttribute('aria-current', 'true');
+    sb.innerHTML = '<span class="num">Score</span><span class="sub">' + (allDone() ? totalScore() + '/' + (CASES.length * MAX) : '') + '</span>';
+    sb.addEventListener('click', function () { state.view = 'results'; save(); render(); });
+    rail.appendChild(sb);
+  }
+
+  /* Case view */
+  function cumulative(spec) {
+    var cur = DX.map(function (x) { return x.id; });
+    return spec.clues.map(function (cl) {
+      cur = cur.filter(function (id) { return cl.fits.indexOf(id) !== -1; });
+      return cur.slice();
+    });
+  }
+
+  function makeSheet(clue, k, isNew, unseen, openIds, answerId) {
+    var li = document.createElement('li');
+    li.className = 'sheet' + (isNew ? ' new' : '') + (unseen ? ' unseen' : '');
+    var head = document.createElement('div');
+    head.className = 'sheet-head';
+    var n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = 'Clue ' + (k + 1);
+    var tag = document.createElement('span');
+    tag.textContent = unseen ? clue.tag + ' · not needed' : clue.tag;
+    head.appendChild(n); head.appendChild(tag);
+    var p = document.createElement('p');
+    p.textContent = clue.text;
+    li.appendChild(head); li.appendChild(p);
+    if (openIds) {
+      var o = document.createElement('p');
+      o.className = 'open';
+      o.appendChild(document.createTextNode('Still possible (' + openIds.length + ' of ' + DX.length + '): '));
+      openIds.forEach(function (id, idx) {
+        if (idx) o.appendChild(document.createTextNode(', '));
+        var node = document.createElement(id === answerId ? 'b' : 'span');
+        node.textContent = dxById[id].short;
+        o.appendChild(node);
+      });
+      li.appendChild(o);
+    }
+    return li;
+  }
+
+  function renderDebrief(spec, c) {
+    var box = $('#debrief');
+    box.innerHTML = '';
+    if (!c.done) return;
+    var art = document.createElement('article');
+    art.className = 'debrief ' + (c.solved ? 'ok' : 'miss');
+
+    var v = document.createElement('p');
+    v.className = 'verdict';
+    v.textContent = c.solved
+      ? 'Solved on clue ' + c.history.length + ' · ' + plural(score(c), 'point')
+      : 'Not solved · the answer was';
+    art.appendChild(v);
+
+    var h = document.createElement('h2');
+    h.tabIndex = -1;
+    h.textContent = dxById[spec.answer].name;
+    art.appendChild(h);
+
+    var cat = document.createElement('p');
+    cat.className = 'cat';
+    cat.textContent = spec.category + ' (Chapel Hill 2012)';
+    art.appendChild(cat);
+
+    var pearl = document.createElement('p');
+    pearl.className = 'pearl';
+    pearl.textContent = spec.pearl;
+    art.appendChild(pearl);
+
+    var wt = document.createElement('p');
+    wt.className = 'whynot-title';
+    wt.textContent = 'Why not these?';
+    art.appendChild(wt);
+
+    var dl = document.createElement('dl');
+    dl.className = 'whynot';
+    spec.whyNot.forEach(function (w) {
+      var dt = document.createElement('dt');
+      dt.textContent = dxById[w.id].name;
+      var dd = document.createElement('dd');
+      dd.textContent = w.text;
+      dl.appendChild(dt); dl.appendChild(dd);
+    });
+    art.appendChild(dl);
+
+    var t = nextTarget();
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn primary';
+    btn.textContent = t === 'results' ? 'See results' : 'Next case';
+    btn.addEventListener('click', function () {
+      if (t === 'results') { state.view = 'results'; } else { state.current = t; state.view = 'case'; }
+      save(); render();
+      var top = $('#tabs');
+      if (top && top.scrollIntoView) top.scrollIntoView({ block: 'start' });
+    });
+    var row = document.createElement('div');
+    row.className = 'actions';
+    row.appendChild(btn);
+    art.appendChild(row);
+
+    box.appendChild(art);
+    if (pendingFocus) { h.focus({ preventScroll: true }); pendingFocus = false; }
+  }
+
+  function renderCase() {
+    var i = state.current;
+    var spec = CASES[i];
+    var c = state.cases[i];
+    var n = c.history.length;
+    var revealed = c.done ? MAX : n + 1;
+
+    $('#caseHead').textContent = 'Case ' + (i + 1) + ' of ' + CASES.length;
+
+    var caption;
+    if (!c.done) {
+      caption = 'Clue ' + revealed + ' of ' + MAX + '. Solving now scores ' + plural(MAX + 1 - revealed, 'point') + '.';
+    } else if (c.solved) {
+      caption = 'Solved on clue ' + n + '. ' + plural(score(c), 'point') + '.';
+    } else {
+      caption = 'Not solved. 0 points.';
+    }
+    $('#caption').textContent = caption;
+
+    var meter = $('#meter');
+    meter.innerHTML = '';
+    meter.setAttribute('aria-label', caption);
+    for (var k = 0; k < MAX; k++) {
+      var s = document.createElement('span');
+      s.className = 'seg';
+      s.dataset.s = k < n ? c.history[k] : (k === n && !c.done ? 'now' : 'idle');
+      meter.appendChild(s);
+    }
+
+    $('#guessForm').hidden = c.done;
+    $('#skip').textContent = revealed < MAX ? 'Skip to next clue' : 'Give up';
+    $('#guess').value = '';
+    $('#msg').textContent = '';
+    closeOptions();
+
+    var wrong = $('#wrong');
+    wrong.innerHTML = '';
+    c.guesses.forEach(function (id) {
+      var li = document.createElement('li');
+      li.textContent = dxById[id].name;
+      wrong.appendChild(li);
+    });
+
+    var list = $('#clues');
+    list.innerHTML = '';
+    $('#studyNote').hidden = !c.done;
+    var open = cumulative(spec);
+    if (!c.done) {
+      for (var j = revealed - 1; j >= 0; j--) list.appendChild(makeSheet(spec.clues[j], j, j === revealed - 1, false, null, spec.answer));
+    } else {
+      for (var m = 0; m < MAX; m++) list.appendChild(makeSheet(spec.clues[m], m, false, m >= n, open[m], spec.answer));
+    }
+
+    renderDebrief(spec, c);
+  }
+
+  /* Results view */
+  var SQUARE = { right: '🟩', wrong: '🟥', skip: '⬛', idle: '⬜' };
+  function shareText() {
+    var lines = ['Name That Vasculitis ' + totalScore() + '/' + (CASES.length * MAX)];
+    state.cases.forEach(function (c, i) {
+      var sq = '';
+      for (var k = 0; k < MAX; k++) sq += SQUARE[k < c.history.length ? c.history[k] : 'idle'];
+      lines.push((i + 1) + ' ' + sq);
+    });
+    return lines.join('\n');
+  }
+
+  function renderResults() {
+    $('#scoreBig').innerHTML = totalScore() + '<span> / ' + (CASES.length * MAX) + '</span>';
+    var rows = $('#rows');
+    rows.innerHTML = '';
+    CASES.forEach(function (spec, i) {
+      var c = state.cases[i];
+      var li = document.createElement('li');
+      li.className = 'row';
+      var nm = document.createElement('span');
+      nm.className = 'rname';
+      nm.textContent = 'Case ' + (i + 1) + ': ' + dxById[spec.answer].name;
+      var sq = document.createElement('span');
+      sq.className = 'squares';
+      sq.setAttribute('aria-hidden', 'true');
+      for (var k = 0; k < MAX; k++) {
+        var q = document.createElement('span');
+        q.className = 'sq';
+        q.dataset.s = k < c.history.length ? c.history[k] : 'idle';
+        sq.appendChild(q);
+      }
+      var pt = document.createElement('span');
+      pt.className = 'rpts';
+      pt.textContent = plural(score(c), 'pt');
+      li.appendChild(nm); li.appendChild(sq); li.appendChild(pt);
+      rows.appendChild(li);
+    });
+    $('#share').textContent = shareText();
+    $('#copyNote').textContent = '';
+  }
+
+  function render() {
+    if (state.view === 'results' && !allDone()) state.view = 'case';
+    renderTabs();
+    var res = state.view === 'results';
+    $('#casePanel').hidden = res;
+    $('#resultsPanel').hidden = !res;
+    if (res) renderResults(); else renderCase();
+  }
+
+  /* Guess box: autocomplete */
+  var input, options, matches = [], active = -1;
+
+  function rank(d, n) {
+    return d.keys.some(function (k) { return k.indexOf(n) === 0; }) ? 0 : 1;
+  }
+  function closeOptions() {
+    matches = []; active = -1;
+    if (options) { options.innerHTML = ''; options.hidden = true; }
+    if (input) { input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); }
+  }
+  function setActive(idx) {
+    active = idx;
+    Array.prototype.forEach.call(options.children, function (li, k) {
+      li.setAttribute('aria-selected', k === idx ? 'true' : 'false');
+    });
+    if (idx >= 0) input.setAttribute('aria-activedescendant', 'opt-' + idx);
+    else input.removeAttribute('aria-activedescendant');
+  }
+  function choose(d) {
+    input.value = d.name;
+    closeOptions();
+    $('#msg').textContent = '';
+    input.focus();
+  }
+  function updateOptions() {
+    var n = norm(input.value);
+    var used = state.cases[state.current].guesses;
+    matches = n.length < 2 ? [] : DX.filter(function (d) {
+      return used.indexOf(d.id) === -1 && d.keys.some(function (k) { return k.indexOf(n) !== -1; });
+    });
+    matches.sort(function (a, b) { return rank(a, n) - rank(b, n); });
+    matches = matches.slice(0, 6);
+    active = -1;
+    options.innerHTML = '';
+    matches.forEach(function (d, idx) {
+      var li = document.createElement('li');
+      li.id = 'opt-' + idx;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', 'false');
+      li.textContent = d.name;
+      li.addEventListener('click', function () { choose(d); });
+      options.appendChild(li);
+    });
+    options.hidden = matches.length === 0;
+    input.setAttribute('aria-expanded', String(matches.length > 0));
+    input.removeAttribute('aria-activedescendant');
+  }
+  function resolve(text) {
+    var n = norm(text);
+    if (!n) return null;
+    var exact = DX.filter(function (d) { return d.keys.indexOf(n) !== -1; });
+    if (exact.length === 1) return exact[0];
+    if (n.length < 2) return null;
+    var part = DX.filter(function (d) { return d.keys.some(function (k) { return k.indexOf(n) !== -1; }); });
+    return part.length === 1 ? part[0] : null;
+  }
+
+  function init() {
+    input = $('#guess');
+    options = $('#options');
+
+    input.addEventListener('input', function () { $('#msg').textContent = ''; updateOptions(); });
+    input.addEventListener('keydown', function (e) {
+      var open = !options.hidden && matches.length > 0;
+      if (e.key === 'ArrowDown' && open) { e.preventDefault(); setActive((active + 1) % matches.length); }
+      else if (e.key === 'ArrowUp' && open) { e.preventDefault(); setActive((active - 1 + matches.length) % matches.length); }
+      else if (e.key === 'Enter' && open && active >= 0) { e.preventDefault(); choose(matches[active]); }
+      else if (e.key === 'Escape') { closeOptions(); }
+    });
+
+    $('#guessForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var d = resolve(input.value);
+      var msg = $('#msg');
+      if (!d) {
+        msg.textContent = input.value.trim() ? 'Pick a diagnosis from the list that appears as you type.' : 'Type a diagnosis first, or skip to the next clue.';
+        return;
+      }
+      if (state.cases[state.current].guesses.indexOf(d.id) !== -1) {
+        msg.textContent = 'You already tried ' + d.name + '.';
+        return;
+      }
+      act('guess', d.id);
+    });
+    $('#skip').addEventListener('click', function () { act('skip'); });
+
+    $('#copy').addEventListener('click', function () {
+      var text = shareText();
+      var note = $('#copyNote');
+      var fallback = function () {
+        var r = document.createRange();
+        r.selectNodeContents($('#share'));
+        var sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(r);
+        note.textContent = 'Copy is blocked here. The result is selected, so use your device copy command.';
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { note.textContent = 'Copied.'; }, fallback);
+      } else {
+        fallback();
+      }
+    });
+
+    var armed = false, timer = null;
+    $('#restart').addEventListener('click', function () {
+      var b = $('#restart');
+      if (!armed) {
+        armed = true;
+        b.textContent = 'Tap again to clear all progress';
+        timer = setTimeout(function () { armed = false; b.textContent = 'Start over'; }, 4000);
+        return;
+      }
+      clearTimeout(timer); armed = false; b.textContent = 'Start over';
+      state = freshState(); save(); render();
+      window.scrollTo(0, 0);
+    });
+
+    render();
+  }
+
+  function start(data) {
+    var s = data && data.state;
+    if (validState(s)) state = s;
+    else { var l = load(); if (l) state = l; }
+    init();
+  }
+  try { if (window.claude && window.claude.hot && window.claude.hot.snapshot) window.claude.hot.snapshot(function () { return { state: state }; }); } catch (e) { /* not in a viewer */ }
+  var hot = window.claude && window.claude.hot;
+  if (hot && hot.ready) hot.ready(start);
+  else start(hot && hot.data ? hot.data : {});
+})();
+</script>
+</body>
+</html>
